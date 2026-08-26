@@ -58,9 +58,15 @@ there's no API to query them. So ostrail:
 4. Merges every host's results and sorts by timestamp.
 
 No assumption is made about which systemd unit any service runs
-under — DevStack, RDO, and Ubuntu-packaged deployments all name their
-units completely differently, so ostrail just reads a host's entire
-journal rather than guessing a unit name.
+under — DevStack, RDO, and Ubuntu-packaged deployments are all known to
+name their units differently, so ostrail just reads a host's entire
+journal rather than guessing a unit name. That said, **testing so far
+has only been against a real DevStack deployment** (which uses its own
+generic `devstack@<code>` naming regardless of the underlying distro,
+not RHEL's or Ubuntu's own package-native unit names) — the
+unit-name-agnostic design is meant to hold up against RDO/RHEL and
+Ubuntu-packaged clouds too, but that's an untested expectation, not a
+verified one yet.
 
 ## Requirements
 
