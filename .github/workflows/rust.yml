@@ -1,0 +1,169 @@
+
+name: Main
+
+on:
+  push:
+
+permissions:
+  actions: write
+  checks: write
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint-audit:
+    name: Lint and vulnerability audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: swatinem/rust-cache@v2
+      - name: Format check
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --all-targets --verbose -- -D warnings
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit dependencies
+        run: cargo audit
+
+  build-test:
+    name: Build and test (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: swatinem/rust-cache@v2
+      - name: Build
+        run: >
+          cargo build
+          --release
+          --verbose
+        env:
+          CARGO_TARGET_DIR: binaries/${{ matrix.os }}
+
+      - name: Run tests (without coverage)
+        if: matrix.os != 'ubuntu-latest'
+        run: >
+          cargo test
+          --verbose
+
+      - name: Run tests (with coverage)
+        if: matrix.os == 'ubuntu-latest'
+        run: >
+          cargo install cargo-tarpaulin
+          && cargo tarpaulin
+          --verbose
+          --out Xml
+          --engine llvm
+          --skip-clean
+
+      - name: Upload coverage reports to Codecov
+        if: matrix.os == 'ubuntu-latest'
+        uses: codecov/codecov-action@v3
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ostrail-${{ matrix.os }}
+          path: binaries/${{ matrix.os }}/release/ostrail${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+
+  push-binaries:
+    name: Push binaries
+    runs-on: ubuntu-latest
+    needs: [build-test, lint-audit]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: swatinem/rust-cache@v2
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ostrail-ubuntu-latest
+          path: binaries/ubuntu-latest/release
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ostrail-macos-latest
+          path: binaries/macos-latest/release
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ostrail-windows-latest
+          path: binaries/windows-latest/release
+
+      - name: Remove previously committed package files
+        run: git rm -rf --ignore-unmatch target/debian target/release/rpmbuild
+
+      - name: Install packaging tools
+        run: |
+          cargo install cargo-deb
+          sudo apt-get update
+          sudo apt-get install -y rpm
+
+      - name: Build .deb package
+        run: cargo deb
+
+      - name: Build .rpm package
+        run: |
+          cargo build --release
+          VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+          RPMTOP="$(pwd)/target/release/rpmbuild"
+          mkdir -p "$RPMTOP"/{SOURCES,SPECS,BUILD,RPMS,SRPMS,BUILDROOT}
+          STAGE=$(mktemp -d)
+          mkdir -p "$STAGE/ostrail-$VERSION/usr/bin"
+          cp target/release/ostrail "$STAGE/ostrail-$VERSION/usr/bin/"
+          tar czf "$RPMTOP/SOURCES/ostrail-$VERSION.tar.gz" -C "$STAGE" "ostrail-$VERSION"
+          sed -e "s/@@VERSION@@/$VERSION/" -e "s/@@RELEASE@@/1/" .rpm/ostrail.spec > "$RPMTOP/SPECS/ostrail.spec"
+          rpmbuild --define "_topdir $RPMTOP" -bb "$RPMTOP/SPECS/ostrail.spec"
+
+      - name: Commit and push
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add -f binaries/ubuntu-latest/release/ostrail
+          git add -f binaries/macos-latest/release/ostrail
+          git add -f binaries/windows-latest/release/ostrail.exe
+          git add -f target/debian/*.deb
+          git add -f target/release/rpmbuild/RPMS/x86_64/*.rpm
+          git commit -m 'uploading binaries and packages'
+          git push
+
+  release-please:
+    name: Execute release chores
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    needs: push-binaries
+    outputs:
+      created: ${{ steps.release.outputs.release_created }}
+    steps:
+      - uses: google-github-actions/release-please-action@v3
+        id: release
+        with:
+          release-type: rust
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    name: Publish to crates.io
+
+    runs-on: ubuntu-latest
+    needs: release-please
+    if: needs.release-please.outputs.created
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: swatinem/rust-cache@v2
+
+      - name: Publish
+      # https://doc.rust-lang.org/cargo/reference/config.html?highlight=CARGO_REGISTRY_TOKEN#credentials
+        run: >
+          cargo publish
+          --verbose
+          --locked
+          --token ${{ secrets.CARGO_REGISTRY_TOKEN }}

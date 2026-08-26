@@ -1,0 +1,25 @@
+[package]
+name = "ostrail"
+version = "0.1.0"
+authors = ["wabuntu <to.wabuntu@proton.me>"]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/wabuntu"
+repository = "https://github.com/wabuntu/ostrail"
+description = """
+Give it a request ID or resource UUID; it SSHes into the hosts running
+your OpenStack services, greps their journals, and prints every
+matching log line from every service in one merged, color-coded
+timeline.
+"""
+categories = ["command-line-utilities"]
+keywords = ["openstack", "logs", "debugging", "cli", "tracing"]
+exclude = ["binaries/*", "target/*"]
+
+[dependencies]
+clap = { version = "4.6.6", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+time = "0.3"
