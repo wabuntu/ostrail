@@ -13,6 +13,10 @@ pub struct CloudAuth {
     pub user_domain_name: String,
     pub project_domain_name: String,
     pub region_name: Option<String>,
+    /// `cacert` from clouds.yaml: a PEM file with extra CA certificates to
+    /// trust for this cloud. (`OS_CACERT` and `--cacert` are handled in
+    /// main, and win over this.)
+    pub cacert: Option<String>,
 }
 
 pub fn discover() -> Option<CloudAuth> {
@@ -33,6 +37,7 @@ fn discover_from_env() -> Option<CloudAuth> {
         project_domain_name: std::env::var("OS_PROJECT_DOMAIN_NAME")
             .unwrap_or_else(|_| "Default".into()),
         region_name: std::env::var("OS_REGION_NAME").ok(),
+        cacert: None,
     })
 }
 
@@ -46,6 +51,8 @@ struct CloudEntry {
     auth: CloudEntryAuth,
     #[serde(default)]
     region_name: Option<String>,
+    #[serde(default)]
+    cacert: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -95,6 +102,7 @@ fn discover_from_clouds_yaml() -> Option<CloudAuth> {
             user_domain_name: entry.auth.user_domain_name.clone(),
             project_domain_name: entry.auth.project_domain_name.clone(),
             region_name: entry.region_name.clone(),
+            cacert: entry.cacert.clone(),
         });
     }
     None

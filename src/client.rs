@@ -1,6 +1,7 @@
 use crate::auth::CloudAuth;
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::path::Path;
 use std::time::Duration;
 
 /// An authenticated Keystone session: the token plus a resolved map of
@@ -13,8 +14,12 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn login(auth: &CloudAuth) -> Result<Session, String> {
+    /// `cacert` is an optional PEM file with extra CA certificates to
+    /// trust in addition to the operating system's trust store.
+    pub fn login(auth: &CloudAuth, cacert: Option<&Path>) -> Result<Session, String> {
+        let tls = crate::tls::client_config(cacert)?;
         let http = reqwest::blocking::Client::builder()
+            .tls_backend_preconfigured(tls)
             .timeout(Duration::from_secs(15))
             .build()
             .map_err(|e| e.to_string())?;
@@ -45,7 +50,7 @@ impl Session {
             .post(&url)
             .json(&body)
             .send()
-            .map_err(|e| format!("could not reach {url}: {e}"))?;
+            .map_err(|e| format!("could not reach {url}: {}", error_chain(&e)))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -83,7 +88,7 @@ impl Session {
             .header("X-Auth-Token", &self.token)
             .header("Accept", "application/json")
             .send()
-            .map_err(|e| format!("request to {url} failed: {e}"))?;
+            .map_err(|e| format!("request to {url} failed: {}", error_chain(&e)))?;
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().unwrap_or_default();
@@ -92,6 +97,23 @@ impl Session {
         resp.json()
             .map_err(|e| format!("bad response from {url}: {e}"))
     }
+}
+
+/// reqwest's own message for a failed request is only "error sending
+/// request". The real cause (for example a certificate the OS does not
+/// trust) is further down the error's source chain, so print all of it.
+fn error_chain(e: &dyn std::error::Error) -> String {
+    let mut msg = e.to_string();
+    let mut source = e.source();
+    while let Some(cause) = source {
+        let text = cause.to_string();
+        if !msg.contains(&text) {
+            msg.push_str(": ");
+            msg.push_str(&text);
+        }
+        source = cause.source();
+    }
+    msg
 }
 
 fn parse_catalog(token_response: &Value, region: Option<&str>) -> HashMap<String, String> {

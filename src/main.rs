@@ -2,10 +2,12 @@ mod auth;
 mod client;
 mod discover;
 mod journal;
+mod tls;
 
 use clap::Parser;
 use client::Session;
 use journal::{HostError, LogLevel, LogLine};
+use std::path::PathBuf;
 
 /// Give it a request ID or resource UUID; it SSHes into the hosts running
 /// your OpenStack services, greps their journals, and prints every
@@ -40,6 +42,14 @@ struct Args {
     /// Lines ostrail couldn't classify are always shown regardless.
     #[arg(long, default_value = "warning", value_parser = parse_min_level)]
     min_level: LogLevel,
+
+    /// PEM file with extra CA certificates to trust when talking to the
+    /// OpenStack APIs (for a private CA). The file may hold several
+    /// certificates. They are trusted in addition to the operating
+    /// system's certificate store. Overrides OS_CACERT and the `cacert`
+    /// setting in clouds.yaml.
+    #[arg(long, value_name = "PATH")]
+    cacert: Option<PathBuf>,
 }
 
 fn parse_min_level(s: &str) -> Result<LogLevel, String> {
@@ -60,7 +70,7 @@ fn main() {
     let hosts = if !args.hosts.is_empty() {
         args.hosts.clone()
     } else {
-        discover_hosts_or_exit()
+        discover_hosts_or_exit(args.cacert.clone())
     };
 
     eprintln!(
@@ -118,7 +128,19 @@ fn main() {
     }
 }
 
-fn discover_hosts_or_exit() -> Vec<String> {
+/// Pick the extra CA file: `--cacert` first, then `OS_CACERT`, then
+/// `cacert` from clouds.yaml. Empty values count as unset.
+fn choose_cacert(
+    flag: Option<PathBuf>,
+    env: Option<String>,
+    clouds_yaml: Option<String>,
+) -> Option<PathBuf> {
+    flag.filter(|p| !p.as_os_str().is_empty())
+        .or_else(|| env.filter(|s| !s.is_empty()).map(PathBuf::from))
+        .or_else(|| clouds_yaml.filter(|s| !s.is_empty()).map(PathBuf::from))
+}
+
+fn discover_hosts_or_exit(cacert_flag: Option<PathBuf>) -> Vec<String> {
     let cloud_auth = match auth::discover() {
         Some(a) => a,
         None => {
@@ -134,7 +156,12 @@ fn discover_hosts_or_exit() -> Vec<String> {
         "Logging in to {} to discover hosts ...",
         cloud_auth.auth_url
     );
-    let session = match Session::login(&cloud_auth) {
+    let cacert = choose_cacert(
+        cacert_flag,
+        std::env::var("OS_CACERT").ok(),
+        cloud_auth.cacert.clone(),
+    );
+    let session = match Session::login(&cloud_auth, cacert.as_deref()) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("Error: login failed: {e}");
@@ -220,6 +247,26 @@ mod tests {
     #[test]
     fn parse_min_level_rejects_unknown_input() {
         assert!(parse_min_level("critical").is_err());
+    }
+
+    #[test]
+    fn choose_cacert_prefers_flag_then_env_then_clouds_yaml() {
+        let flag = Some(PathBuf::from("flag.pem"));
+        let env = Some("env.pem".to_string());
+        let yaml = Some("yaml.pem".to_string());
+        assert_eq!(
+            choose_cacert(flag, env.clone(), yaml.clone()),
+            Some(PathBuf::from("flag.pem"))
+        );
+        assert_eq!(
+            choose_cacert(None, env, yaml.clone()),
+            Some(PathBuf::from("env.pem"))
+        );
+        assert_eq!(
+            choose_cacert(None, Some(String::new()), yaml),
+            Some(PathBuf::from("yaml.pem"))
+        );
+        assert_eq!(choose_cacert(None, None, None), None);
     }
 
     #[test]
