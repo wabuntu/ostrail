@@ -107,6 +107,40 @@ Flags:
   third-party libraries, ...) are always shown regardless, since they
   still matched the search and there's no safe way to guess their
   severity.
+- `--cacert <path>`: a PEM file with extra CA certificates to trust
+  (see below)
+
+## TLS and certificates
+
+ostrail sends your OpenStack password and token to Keystone over
+HTTPS. It checks the server certificate with the operating system's
+own certificate store and verifier (through `rustls-platform-verifier`).
+It does not use a CA list built into the binary. So when your OS
+stops trusting a CA, ostrail stops trusting it too. You do not need a
+new ostrail build for that.
+
+- On Windows and macOS, the OS verifier also uses the OS list of
+  blocked certificates, and it checks if the server certificate was
+  revoked.
+- On Linux, ostrail uses the system CA bundle (for example
+  `/etc/ssl/certs`). Keep the `ca-certificates` package up to date.
+  There is no revocation check on Linux.
+
+If your cloud uses a private CA, give ostrail the CA certificate as a
+PEM file. The file can hold more than one certificate. These
+certificates are trusted in addition to the OS store, not instead of
+it.
+
+- `--cacert <path>` on the command line, or
+- the `OS_CACERT` environment variable (the same one the `openstack`
+  CLI uses), or
+- `cacert:` for the cloud in `clouds.yaml`.
+
+If more than one is set, `--cacert` wins, then `OS_CACERT`, then
+`clouds.yaml`. ostrail stops with an error if the file cannot be read
+or has no certificates.
+
+There is no option to turn certificate checks off.
 
 ## Install
 
