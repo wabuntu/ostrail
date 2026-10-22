@@ -157,7 +157,7 @@ change. New advisories for our dependencies show up there first.
 
 Example: on 2026-10-22 the audit job found RUSTSEC-2026-0382 in
 `rustls-webpki` (distrusted intermediate certificates could be accepted).
-The fix was released the same day.
+We updated the dependency the same day.
 
 ## Install
 
