@@ -2,6 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/ostrail.svg)](https://crates.io/crates/ostrail)
 [![CI](https://github.com/wabuntu/ostrail/actions/workflows/rust.yml/badge.svg)](https://github.com/wabuntu/ostrail/actions/workflows/rust.yml)
+[![Security audit](https://github.com/wabuntu/ostrail/actions/workflows/audit.yml/badge.svg)](https://github.com/wabuntu/ostrail/actions/workflows/audit.yml)
 
 Give `ostrail` a request ID (`req-...`) or a resource UUID (a server,
 volume, network, ...), and it SSHes into the hosts running your
@@ -141,6 +142,22 @@ If more than one is set, `--cacert` wins, then `OS_CACERT`, then
 or has no certificates.
 
 There is no option to turn certificate checks off.
+
+## Quality checks
+
+Every push runs these checks in GitHub Actions:
+
+- Build and test on Linux, macOS and Windows.
+- `cargo fmt --check` for formatting.
+- `cargo clippy` with all warnings treated as errors.
+- `cargo audit` against the RustSec advisory database.
+
+A separate job runs `cargo audit` every Monday, even when the code does not
+change. New advisories for our dependencies show up there first.
+
+Example: on 2026-10-22 the audit job found RUSTSEC-2026-0382 in
+`rustls-webpki` (distrusted intermediate certificates could be accepted).
+We updated the dependency the same day.
 
 ## Install
 
